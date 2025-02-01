@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk Motion Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: #0a192f;
+            color: #00ff9f;
+        }
+        .cyberpunk-border {
+            border: 2px solid #00ff9f;
+            box-shadow: 0 0 10px #00ff9f, inset 0 0 10px #00ff9f;
+        }
+        .loading-text {
+            animation: glow 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes glow {
+            from { text-shadow: 0 0 5px #00ff9f, 0 0 10px #00ff9f; }
+            to { text-shadow: 0 0 20px #00ff9f, 0 0 30px #00ff9f; }
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="max-w-3xl w-full space-y-6">
+        <h1 class="text-4xl md:text-6xl text-center mb-8 loading-text">COMPUTER VISION</h1>
+        
+        <div class="relative cyberpunk-border p-2 w-full aspect-video bg-black/20">
+            <video id="video" class="w-full h-full object-contain" autoplay muted></video>
+            <canvas id="canvas" class="w-full h-full object-contain"></canvas>
+        </div>
+
+        <div class="flex justify-center gap-4">
+            <button id="startBtn" class="cyberpunk-border px-6 py-3 bg-black/30 hover:bg-black/50 transition-all">
+                <i class="bi bi-camera-video"></i> START SCAN
+            </button>
+            <button id="stopBtn" class="cyberpunk-border px-6 py-3 bg-black/30 hover:bg-black/50 transition-all" disabled>
+                <i class="bi bi-stop-circle"></i> STOP SCAN
+            </button>
+        </div>
+
+        <div id="status" class="text-center loading-text">System Ready...</div>
+    </div>
+
+    <script>
+        let model = null;
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let startBtn = document.getElementById('startBtn');
+        let stopBtn = document.getElementById('stopBtn');
+        let status = document.getElementById('status');
+        let isDetecting = false;
+
+        // Load the model
+        async function loadModel() {
+            status.textContent = 'Loading neural network...';
+            model = await cocoSsd.load();
+            status.textContent = 'Neural network loaded. Ready to scan.';
+        }
+        loadModel();
+
+        // Set up video stream
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = stream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve();
+                    };
+                });
+            } catch (error) {
+                status.textContent = 'Camera access denied or error occurred.';
+                console.error('Error accessing camera:', error);
+            }
+        }
+
+        // Detect objects in video stream
+        async function detectFrame() {
+            if (!isDetecting) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const predictions = await model.detect(video);
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#00ff9f';
+            ctx.fillStyle = '#00ff9f';
+            ctx.font = '16px Orbitron';
+
+            predictions.forEach(prediction => {
+                // Draw bounding box
+                ctx.beginPath();
+                ctx.rect(...prediction.bbox);
+                ctx.stroke();
+
+                // Draw label background
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(
+                    prediction.bbox[0],
+                    prediction.bbox[1] - 20,
+                    prediction.bbox[2],
+                    20
+                );
+
+                // Draw label text
+                ctx.fillStyle = '#00ff9f';
+                ctx.fillText(
+                    `${prediction.class} ${Math.round(prediction.score * 100)}%`,
+                    prediction.bbox[0],
+                    prediction.bbox[1] - 5
+                );
+            });
+
+            requestAnimationFrame(detectFrame);
+        }
+
+        startBtn.addEventListener('click', async () => {
+            await setupCamera();
+            isDetecting = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            status.textContent = 'Scanning active...';
+            detectFrame();
+        });
+
+        stopBtn.addEventListener('click', () => {
+            isDetecting = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            const stream = video.srcObject;
+            const tracks = stream?.getTracks();
+            tracks?.forEach(track => track.stop());
+            video.srcObject = null;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            status.textContent = 'Scan stopped. System ready.';
+        });
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
